@@ -1,4 +1,4 @@
-#include "dobby.h"
+﻿#include "dobby.h"
 #include "dobby/common.h"
 #include "Interceptor.h"
 #include "InterceptRouting/InlineHookRouting.h"
@@ -8,12 +8,16 @@
 #include "MemoryAllocator/NearMemoryAllocator.h"
 #include <stdint.h>
 
-__attribute__((constructor)) static void ctor() {
-  DEBUG_LOG("================================");
-  DEBUG_LOG("Dobby");
-  DEBUG_LOG("dobby in debug log mode, disable with cmake flag \"-DDOBBY_DEBUG=OFF\"");
-  DEBUG_LOG("================================");
-}
+struct DobbyInit {
+  DobbyInit() {
+    DEBUG_LOG("================================");
+    DEBUG_LOG("Dobby");
+    DEBUG_LOG("dobby in debug log mode...");
+    DEBUG_LOG("================================");
+  }
+};
+
+static DobbyInit g_init;
 
 PUBLIC int DobbyDestroy(void *address) {
   __FUNC_CALL_TRACE__();

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +19,14 @@ typedef enum {
 
 #if defined(USE_CXX_FILESTREAM)
 #include <fstream>
+#endif
+
+#if defined(_MSC_VER)
+#define FUNC_SIGNATURE __FUNCSIG__
+#elif defined(__clang__) || defined(__GNUC__)
+#define FUNC_SIGNATURE __PRETTY_FUNCTION__
+#else
+#define FUNC_SIGNATURE __func__
 #endif
 
 class Logger {
@@ -200,7 +208,7 @@ void logger_log_impl(void *logger, LogLevel level, const char *fmt, ...);
 #else
 #define __FUNC_CALL_TRACE__()                                                                                          \
   do {                                                                                                                 \
-    DEBUG_LOG("[+] call -> %s:%d", __PRETTY_FUNCTION__, __LINE__);                                                     \
+    DEBUG_LOG("[+] call -> %s:%d", FUNC_SIGNATURE, __LINE__);                                                     \
   } while (0)
 #endif
 
