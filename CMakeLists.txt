@@ -1,38 +1,11 @@
 cmake_minimum_required(VERSION 3.5)
 project(Dobby)
 if(MSVC)
-   enable_language(ASM_MASM)
-  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  enable_language(ASM_MASM)
   set(CMAKE_MASM_FLAGS "/nologo")
-
-  set(DOBBY_ASM_SOURCES
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
-  )
-
-  set_source_files_properties(
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
-    PROPERTIES
-      LANGUAGE ASM_MASM
-      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_bridge_x64.obj\""
-  )
-  set_source_files_properties(
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
-    PROPERTIES
-      LANGUAGE ASM_MASM
-      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_trampoline_x64.obj\""
-  )
-
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   enable_language(ASM)
-
-  set(DOBBY_ASM_SOURCES
-    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.S
-  )
-
   set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -x assembler-with-cpp")
 endif()
 
@@ -134,6 +107,33 @@ endif ()
 
 # ---
 
+if (MSVC)
+ set(DOBBY_ASM_SOURCES
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
+  )
+
+  set_source_files_properties(
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
+    PROPERTIES
+      LANGUAGE ASM_MASM
+      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_bridge_x64.obj\""
+  )
+  set_source_files_properties(
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
+    PROPERTIES
+      LANGUAGE ASM_MASM
+      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_trampoline_x64.obj\""
+  )
+else()
+  set(DOBBY_ASM_SOURCES
+    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.S
+    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.S
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.S
+    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.S
+  )
+endif()
+
 set(DOBBY_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   # cpu
@@ -179,8 +179,7 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/helper_arm64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/ClosureTrampolineARM64.cc
-  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.S
-  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.S
+
   # closure trampoline bridge - x86
   source/TrampolineBridge/ClosureTrampolineBridge/x86/helper_x86.cc
   source/TrampolineBridge/ClosureTrampolineBridge/x86/closure_bridge_x86.cc
@@ -189,8 +188,6 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/TrampolineBridge/ClosureTrampolineBridge/x64/helper_x64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/x64/ClosureTrampolineX64.cc
-  source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
-  source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
 
   # plugin register
 
