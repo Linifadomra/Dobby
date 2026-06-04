@@ -179,8 +179,8 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/helper_arm64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/arm64/ClosureTrampolineARM64.cc
-  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.asm
-  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.asm
+  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.S
+  source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.S
   # closure trampoline bridge - x86
   source/TrampolineBridge/ClosureTrampolineBridge/x86/helper_x86.cc
   source/TrampolineBridge/ClosureTrampolineBridge/x86/closure_bridge_x86.cc
@@ -272,8 +272,9 @@ add_subdirectory(external/logging)
 get_target_property(logging.SOURCE_FILE_LIST logging SOURCES)
 
 # add osbase library
-add_subdirectory(external/osbase)
-
+if(NOT WIN32)
+  add_subdirectory(external/osbase)
+endif()
 # ---
 
 if (Plugin.SymbolResolver)
