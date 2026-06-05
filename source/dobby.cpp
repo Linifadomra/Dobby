@@ -12,7 +12,7 @@ struct DobbyInit {
   DobbyInit() {
     DEBUG_LOG("================================");
     DEBUG_LOG("Dobby");
-    DEBUG_LOG("dobby in debug log mode...");
+    DEBUG_LOG("dobby in debug log mode, disable with cmake flag \"-DDOBBY_DEBUG=OFF\"");
     DEBUG_LOG("================================");
   }
 };
