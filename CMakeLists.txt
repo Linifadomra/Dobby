@@ -293,20 +293,36 @@ if(MSVC)
   set(DOBBY_ASM_OBJECTS "")
   foreach(S_FILE ${DOBBY_ASM_SOURCES})
     get_filename_component(BASE ${S_FILE} NAME_WE)
-    set(PP_ASM "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.asm")
-    set(OBJ    "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.obj")
+    set(SRC_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${S_FILE}")
+    set(PP_ASM   "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.asm")
+    set(OBJ      "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.obj")
 
     add_custom_command(
       OUTPUT  "${PP_ASM}"
-      COMMAND cmd /c "cl.exe /EP /nologo /I ... ${CMAKE_CURRENT_SOURCE_DIR}/${S_FILE} > ${PP_ASM}"
-      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${S_FILE}"
+      COMMAND cl.exe
+              /P
+              /Fi "${PP_ASM}"
+              /nologo
+              /I "${CMAKE_CURRENT_SOURCE_DIR}"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/source"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/source/dobby"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/external"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/external/logging"
+              /I "${CMAKE_CURRENT_SOURCE_DIR}/builtin-plugin"
+              "${SRC_FILE}"
+      DEPENDS "${SRC_FILE}"
       COMMENT "Preprocessing ${S_FILE}"
       VERBATIM
     )
 
     add_custom_command(
       OUTPUT  "${OBJ}"
-      COMMAND ml64.exe /nologo /c /Fo "${OBJ}" "${PP_ASM}"
+      COMMAND ml64.exe
+              /nologo
+              /c
+              /Fo "${OBJ}"
+              "${PP_ASM}"
       DEPENDS "${PP_ASM}"
       COMMENT "Assembling ${BASE}.asm"
       VERBATIM
