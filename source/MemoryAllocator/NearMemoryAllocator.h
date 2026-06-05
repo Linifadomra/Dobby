@@ -98,21 +98,33 @@ struct NearMemoryAllocator {
       if (intersect.size < in_size)
         continue;
 
-      auto unused_page = (void *)ALIGN_FLOOR(intersect.addr(), OSMemory::PageSize());
-      {
-        auto page = OSMemory::Allocate(OSMemory::PageSize(), kNoAccess, unused_page);
-        if (page != unused_page) {
-          FATAL_LOG("allocate unused page failed");
+      addr_t probe = ALIGN_FLOOR(intersect.addr(), OSMemory::PageSize());
+      addr_t probe_end = ALIGN_FLOOR(intersect.addr() + intersect.size - OSMemory::PageSize(), OSMemory::PageSize());
+      bool allocated = false;
+      for (; probe <= probe_end; probe += OSMemory::PageSize()) {
+        
+        auto desired_perm = is_exec ? kReadExecute : kReadWriteExecute;
+        
+        auto page = OSMemory::Allocate(OSMemory::PageSize(), desired_perm, (void *)probe);
+        if (page != (void *)probe) {
+          if (page) OSMemory::Free(page, OSMemory::PageSize());
+          continue;
         }
-        OSMemory::SetPermission(unused_page, OSMemory::PageSize(), is_exec ? kReadExecute : kReadWrite);
-        DEBUG_LOG("step-2 unused page: %p", unused_page);
-        auto page_allocator = new simple_linear_allocator_t((uint8_t *)unused_page, OSMemory::PageSize());
+
+        DEBUG_LOG("step-2 page: %p perm: %s", (void *)probe, is_exec ? "rx" : "rwx");
+        auto page_allocator = new simple_linear_allocator_t((uint8_t *)probe, (uint32_t)OSMemory::PageSize());
+          
         if (is_exec)
           code_page_allocators.push_back(page_allocator);
         else
           data_page_allocators.push_back(page_allocator);
+
+        allocated = true;
+        break;
       }
-      // should be fallthrough to step-1 allocator
+      if (!allocated)
+        continue;
+
       return allocNearBlock(in_size, search_range, is_exec);
     }
 
