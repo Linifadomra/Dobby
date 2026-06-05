@@ -107,33 +107,6 @@ endif ()
 
 # ---
 
-if (MSVC)
- set(DOBBY_ASM_SOURCES
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
-  )
-
-  set_source_files_properties(
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.asm
-    PROPERTIES
-      LANGUAGE ASM_MASM
-      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_bridge_x64.obj\""
-  )
-  set_source_files_properties(
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.asm
-    PROPERTIES
-      LANGUAGE ASM_MASM
-      COMPILE_FLAGS "/Fo\"${CMAKE_CURRENT_BINARY_DIR}/closure_trampoline_x64.obj\""
-  )
-else()
-  set(DOBBY_ASM_SOURCES
-    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_bridge_arm64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/arm64/closure_trampoline_arm64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.S
-    source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.S
-  )
-endif()
-
 set(DOBBY_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   # cpu
@@ -311,20 +284,53 @@ message(STATUS "[Dobby] ${DOBBY_BUILD_VERSION}")
 
 # ---
 
+set(DOBBY_ASM_SOURCES
+  source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.S
+  source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.S
+)
+
+if(MSVC)
+  set(DOBBY_ASM_OBJECTS "")
+  foreach(S_FILE ${DOBBY_ASM_SOURCES})
+    get_filename_component(BASE ${S_FILE} NAME_WE)
+    set(PP_ASM "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.asm")
+    set(OBJ    "${CMAKE_CURRENT_BINARY_DIR}/${BASE}.obj")
+
+    add_custom_command(
+      OUTPUT  "${PP_ASM}"
+      COMMAND cmd /c "cl.exe /EP /nologo /I ... ${CMAKE_CURRENT_SOURCE_DIR}/${S_FILE} > ${PP_ASM}"
+      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${S_FILE}"
+      COMMENT "Preprocessing ${S_FILE}"
+      VERBATIM
+    )
+
+    add_custom_command(
+      OUTPUT  "${OBJ}"
+      COMMAND ml64.exe /nologo /c /Fo "${OBJ}" "${PP_ASM}"
+      DEPENDS "${PP_ASM}"
+      COMMENT "Assembling ${BASE}.asm"
+      VERBATIM
+    )
+
+    list(APPEND DOBBY_ASM_OBJECTS "${OBJ}")
+  endforeach()
+endif()
+
 set(SOURCE_FILE_LIST
   ${dobby.HEADER_FILE_LIST}
   ${dobby.SOURCE_FILE_LIST}
   ${logging.SOURCE_FILE_LIST}
   ${dobby.plugin.SOURCE_FILE_LIST}
-  ${DOBBY_ASM_SOURCES}
-  )
+)
+
+if(MSVC)
+  list(APPEND SOURCE_FILE_LIST ${DOBBY_ASM_OBJECTS})
+else()
+  list(APPEND SOURCE_FILE_LIST ${DOBBY_ASM_SOURCES})
+endif()
 
 get_absolute_path_list(SOURCE_FILE_LIST SOURCE_FILE_LIST_)
 set(SOURCE_FILE_LIST ${SOURCE_FILE_LIST_})
-
-if(MSVC)
-  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/source/TrampolineBridge/ClosureTrampolineBridge/x64")
-endif()
 
 add_library(dobby SHARED
   ${SOURCE_FILE_LIST}
