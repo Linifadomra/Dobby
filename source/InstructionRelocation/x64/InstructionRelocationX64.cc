@@ -15,6 +15,62 @@
 
 using namespace zz::x64;
 
+static int GetModRMExtraLength(uint8_t modrm) {
+    const uint8_t mod = (modrm >> 6) & 0x3;
+    const uint8_t rm  = modrm & 0x7;
+
+    int extra_length = 0;
+
+    // ModRM displacement:
+    //  mod = 00 -> no displacement
+    //  mod = 01 -> disp8
+    //  mod = 10 -> disp32
+    //  mod = 11 -> register-direct addressing
+    if (mod == 1)
+        extra_length += 1;
+    else if (mod == 2)
+        extra_length += 4;
+
+    // rm = 100 with memory addressing indicates a SIB byte follows.
+    if (mod != 3 && rm == 4)
+        extra_length += 1;
+
+    return extra_length;
+}
+
+// workaround for dobby's decoder :/
+static int GetRealInstructionLength(const uint8_t* code) {
+    switch (code[0]) {
+        case 0x55: // push rbp
+        case 0x57: // push rdi
+        case 0x53: // push rbx
+            return 1;
+
+        case 0x89:
+        case 0x8B:
+            return 2 + GetModRMExtraLength(code[1]);
+
+        case 0x48:
+            switch (code[1]) {
+                case 0x89:
+                case 0x8B:
+                    return 3 + GetModRMExtraLength(code[2]);
+
+                case 0x83:
+                    return 4 + GetModRMExtraLength(code[2]);
+
+                default:
+                    break;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return 1;
+}
+
 int GenRelocateCodeFixed(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
   TurboAssembler turbo_assembler_(0);
   // Set fixed executable code chunk address
@@ -27,15 +83,27 @@ int GenRelocateCodeFixed(void *buffer, CodeMemBlock *origin, CodeMemBlock *reloc
 
   auto buffer_cursor = (uint8_t *)buffer;
 
-  int predefined_relocate_size = origin->size;
+  int actual_copied_size = 0;
+  const int min_hook_size = 14; 
 
-  while ((buffer_cursor < ((uint8_t *)buffer + predefined_relocate_size))) {
+  while (actual_copied_size < min_hook_size) {
     x86_insn_decode_t insn = {0};
     memset(&insn, 0, sizeof(insn));
+    int real_length = GetRealInstructionLength(buffer_cursor);
+    int size_before = turbo_assembler_.code_buffer()->buffer_size;
+
     GenRelocateSingleX86Insn(curr_orig_ip, curr_relo_ip, buffer_cursor, &turbo_assembler_,
                              turbo_assembler_.code_buffer(), insn, 64);
 
-    // go next
+    int size_after = turbo_assembler_.code_buffer()->buffer_size;
+    if ((size_after - size_before) != real_length) {
+      turbo_assembler_.code_buffer()->buffer_size = size_before;
+      turbo_assembler_.code_buffer()->EmitBuffer(buffer_cursor, real_length);
+    }
+
+    insn.length = real_length;
+    actual_copied_size += insn.length;
+
     curr_orig_ip += insn.length;
     buffer_cursor += insn.length;
     curr_relo_ip = (addr64_t)relocated->addr() + turbo_assembler_.pc_offset();
