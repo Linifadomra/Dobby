@@ -15,6 +15,11 @@
 
 using namespace zz::x64;
 
+struct PrefixState {
+    bool has_rex = false;
+    int length = 0;
+};
+
 static int GetModRMExtraLength(uint8_t modrm) {
     const uint8_t mod = (modrm >> 6) & 0x3;
     const uint8_t rm  = modrm & 0x7;
@@ -38,37 +43,97 @@ static int GetModRMExtraLength(uint8_t modrm) {
     return extra_length;
 }
 
+static inline bool IsByteInRange(uint8_t v, uint8_t lo, uint8_t hi) {
+    return v >= lo && v <= hi;
+}
+
 // workaround for dobby's decoder :/
 static int GetRealInstructionLength(const uint8_t* code) {
-    switch (code[0]) {
-        case 0x55: // push rbp
-        case 0x57: // push rdi
-        case 0x53: // push rbx
-            return 1;
+    const uint8_t* start = code;
 
+    while (true) {
+        uint8_t c = *code;
+
+        // REX
+        if (IsByteInRange(c,0x40,0x4F)) {
+            code++;
+            continue;
+        }
+
+        switch (c) {
+            case 0xF0:
+            case 0xF2:
+            case 0xF3:
+            case 0x2E:
+            case 0x36:
+            case 0x3E:
+            case 0x26:
+            case 0x64:
+            case 0x65:
+            case 0x66:
+                code++;
+                continue;
+        }
+
+        break;
+    }
+
+    uint8_t op = *code++;
+    int len = (int)(code - start);
+
+    auto consume_modrm = [&]() {
+        uint8_t modrm = *code++;
+        len++;
+
+        len += GetModRMExtraLength(modrm);
+    };
+    
+    // PUSH/POP r64
+    if (IsByteInRange(op,0x50,0x5F))
+        return len + 1;
+
+    if (IsByteInRange(op,0xB8,0xBF))
+        return len + 4; 
+
+    switch (op) {
+        // MOV r, r/m
         case 0x89:
         case 0x8B:
-            return 2 + GetModRMExtraLength(code[1]);
+            consume_modrm();
+            return len;
 
-        case 0x48:
-            switch (code[1]) {
-                case 0x89:
-                case 0x8B:
-                    return 3 + GetModRMExtraLength(code[2]);
+        // SSE / two-byte opcodes
+        case 0x0F: {
+            uint8_t op2 = *code++;
+            len++;
 
-                case 0x83:
-                    return 4 + GetModRMExtraLength(code[2]);
+            switch (op2) {
+
+                case 0x10:
+                case 0x11:
+                case 0x28:
+                case 0x29:
+                case 0x2E:
+                case 0x2F:
+                case 0x58:
+                case 0x59:
+                case 0x5C:
+                case 0x5E:
+                    consume_modrm();
+                    return len;
 
                 default:
-                    break;
+                    consume_modrm();
+                    return len;
             }
-            break;
+        }
+
 
         default:
             break;
     }
 
-    return 1;
+    return len + 2;
 }
 
 int GenRelocateCodeFixed(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
