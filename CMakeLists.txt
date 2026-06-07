@@ -330,6 +330,10 @@ add_library(dobby SHARED
   ${SOURCE_FILE_LIST}
   )
 
+set_target_properties(dobby PROPERTIES
+  OUTPUT_NAME "dobby"
+  )
+
 target_include_directories(dobby PUBLIC
   include
   )
@@ -340,12 +344,10 @@ add_library(dobby_static STATIC
   ${SOURCE_FILE_LIST}
   )
 
-target_include_directories(dobby_static PUBLIC
-  include
-  )
-
-set_target_properties(dobby_static
-  PROPERTIES OUTPUT_NAME "dobby"
+target_include_directories(dobby_static
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
   )
 
 # ---
