@@ -90,7 +90,7 @@ static int GetRealInstructionLength(const uint8_t* code) {
     
     // PUSH/POP r64
     if (IsByteInRange(op,0x50,0x5F))
-        return len + 1;
+        return len;
 
     if (IsByteInRange(op,0xB8,0xBF))
         return len + 4; 
@@ -133,7 +133,7 @@ static int GetRealInstructionLength(const uint8_t* code) {
             break;
     }
 
-    return len + 2;
+    return len;
 }
 
 int GenRelocateCodeFixed(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
