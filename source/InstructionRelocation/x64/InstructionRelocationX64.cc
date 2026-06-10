@@ -15,177 +15,51 @@
 
 using namespace zz::x64;
 
-struct PrefixState {
-    bool has_rex = false;
-    int length = 0;
-};
-
-static int GetModRMExtraLength(uint8_t modrm) {
-    const uint8_t mod = (modrm >> 6) & 0x3;
-    const uint8_t rm  = modrm & 0x7;
-
-    int extra_length = 0;
-
-    // ModRM displacement:
-    //  mod = 00 -> no displacement
-    //  mod = 01 -> disp8
-    //  mod = 10 -> disp32
-    //  mod = 11 -> register-direct addressing
-    if (mod == 1)
-        extra_length += 1;
-    else if (mod == 2)
-        extra_length += 4;
-
-    // rm = 100 with memory addressing indicates a SIB byte follows.
-    if (mod != 3 && rm == 4)
-        extra_length += 1;
-
-    return extra_length;
-}
-
-static inline bool IsByteInRange(uint8_t v, uint8_t lo, uint8_t hi) {
-    return v >= lo && v <= hi;
-}
-
-// workaround for dobby's decoder :/
-static int GetRealInstructionLength(const uint8_t* code) {
-    const uint8_t* start = code;
-
-    while (true) {
-        uint8_t c = *code;
-
-        // REX
-        if (IsByteInRange(c,0x40,0x4F)) {
-            code++;
-            continue;
-        }
-
-        switch (c) {
-            case 0xF0:
-            case 0xF2:
-            case 0xF3:
-            case 0x2E:
-            case 0x36:
-            case 0x3E:
-            case 0x26:
-            case 0x64:
-            case 0x65:
-            case 0x66:
-                code++;
-                continue;
-        }
-
-        break;
-    }
-
-    uint8_t op = *code++;
-    int len = (int)(code - start);
-
-    auto consume_modrm = [&]() {
-        uint8_t modrm = *code++;
-        len++;
-
-        len += GetModRMExtraLength(modrm);
-    };
-    
-    // PUSH/POP r64
-    if (IsByteInRange(op,0x50,0x5F))
-        return len;
-
-    if (IsByteInRange(op,0xB8,0xBF))
-        return len + 4; 
-
-    switch (op) {
-        // MOV r, r/m
-        case 0x89:
-        case 0x8B:
-            consume_modrm();
-            return len;
-
-        // SSE / two-byte opcodes
-        case 0x0F: {
-            uint8_t op2 = *code++;
-            len++;
-
-            switch (op2) {
-
-                case 0x10:
-                case 0x11:
-                case 0x28:
-                case 0x29:
-                case 0x2E:
-                case 0x2F:
-                case 0x58:
-                case 0x59:
-                case 0x5C:
-                case 0x5E:
-                    consume_modrm();
-                    return len;
-
-                default:
-                    consume_modrm();
-                    return len;
-            }
-        }
-
-
-        default:
-            break;
-    }
-
-    return len;
-}
-
 int GenRelocateCodeFixed(void *buffer, CodeMemBlock *origin, CodeMemBlock *relocated, bool branch) {
   TurboAssembler turbo_assembler_(0);
-  // Set fixed executable code chunk address
   turbo_assembler_.set_fixed_addr(relocated->addr());
-#define ASM turbo_assembler_.
-#define BUF turbo_assembler_.code_buffer()->
+#define _ turbo_assembler_.
+#define __ turbo_assembler_.code_buffer()->
 
   auto curr_orig_ip = (addr64_t)origin->addr();
   auto curr_relo_ip = (addr64_t)relocated->addr();
-
   auto buffer_cursor = (uint8_t *)buffer;
 
-  int actual_copied_size = 0;
-  const int min_hook_size = 14; 
+  // The size requested by the trampoline (e.g., 6 bytes)
+  int minimum_required_size = origin->size; 
+  int total_bytes_decoded = 0;
 
-  while (actual_copied_size < min_hook_size) {
+  // CRITICAL FIX: Loop until we satisfy the minimum size requirement.
+  // Do not allow loose pointer comparisons to overshoot into partial instructions.
+  while (total_bytes_decoded < minimum_required_size) {
     x86_insn_decode_t insn = {0};
     memset(&insn, 0, sizeof(insn));
-    int real_length = GetRealInstructionLength(buffer_cursor);
-    int size_before = turbo_assembler_.code_buffer()->buffer_size;
-
+    
     GenRelocateSingleX86Insn(curr_orig_ip, curr_relo_ip, buffer_cursor, &turbo_assembler_,
                              turbo_assembler_.code_buffer(), insn, 64);
 
-    int size_after = turbo_assembler_.code_buffer()->buffer_size;
-    if ((size_after - size_before) != real_length) {
-      turbo_assembler_.code_buffer()->buffer_size = size_before;
-      turbo_assembler_.code_buffer()->EmitBuffer(buffer_cursor, real_length);
+    if (insn.length == 0) {
+      DEBUG_LOG("Decoder failure on instruction at %p", (void*)curr_orig_ip);
+      return -1;
     }
 
-    insn.length = real_length;
-    actual_copied_size += insn.length;
-
-    curr_orig_ip += insn.length;
-    buffer_cursor += insn.length;
-    curr_relo_ip = (addr64_t)relocated->addr() + turbo_assembler_.pc_offset();
+    // Advance iteration state safely 
+    curr_orig_ip       += insn.length;
+    buffer_cursor      += insn.length;
+    total_bytes_decoded += insn.length;
+    curr_relo_ip        = (addr64_t)relocated->addr() + turbo_assembler_.pc_offset();
   }
 
-  // jmp to the origin rest instructions
+  // jmp back to the remaining instructions
   if (branch) {
     CodeGen codegen(&turbo_assembler_);
-    // TODO: 6 == jmp [RIP + disp32] instruction size
     addr64_t stub_addr = curr_relo_ip + 6;
     codegen.JmpNearIndirect(stub_addr);
     turbo_assembler_.code_buffer()->Emit<int64_t>(curr_orig_ip);
   }
 
-  // update origin
-  auto new_origin_len = curr_orig_ip - origin->addr();
-  origin->reset(origin->addr(), new_origin_len);
+  // Correct the origin length structure back to the precise instruction boundary (e.g., 9)
+  origin->reset(origin->addr(), total_bytes_decoded);
 
   int relo_len = turbo_assembler_.code_buffer()->buffer_size;
   if (relo_len > relocated->size) {
