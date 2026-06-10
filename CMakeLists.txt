@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.13)
 project(Dobby)
 if(MSVC)
   enable_language(ASM_MASM)
@@ -38,6 +38,8 @@ option(Plugin.Android.BionicLinkerUtil "Enable android bionic linker util" OFF)
 option(DOBBY_BUILD_EXAMPLE "Build example" OFF)
 
 option(DOBBY_BUILD_TEST "Build test" OFF)
+
+option(BUILD_SHARED_LIBS "Build as a shared library" OFF)
 
 # --- private
 option(DOBBY_BUILD_KERNEL_MODE "Build xnu kernel mode" OFF)
@@ -81,6 +83,7 @@ message(STATUS "[Dobby] Plugin.SymbolResolver: ${Plugin.SymbolResolver}")
 message(STATUS "[Dobby] Plugin.ImportTableReplace: ${Plugin.ImportTableReplace}")
 message(STATUS "[Dobby] Plugin.Android.BionicLinkerUtil: ${Plugin.Android.BionicLinkerUtil}")
 message(STATUS "[Dobby] DOBBY_BUILD_EXAMPLE: ${DOBBY_BUILD_EXAMPLE}")
+message(STATUS "[Dobby] BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}")
 message(STATUS "[Dobby] DOBBY_BUILD_TEST: ${DOBBY_BUILD_TEST}")
 message(STATUS "[Dobby] DOBBY_BUILD_KERNEL_MODE: ${DOBBY_BUILD_KERNEL_MODE}")
 message(STATUS "[Dobby] Private.Obfuscation: ${Private.Obfuscation}")
@@ -326,50 +329,24 @@ if(MSVC)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/source/TrampolineBridge/ClosureTrampolineBridge/x64")
 endif()
 
-add_library(dobby SHARED
-  ${SOURCE_FILE_LIST}
-  )
+if(BUILD_SHARED_LIBS)
+  add_library(dobby SHARED ${SOURCE_FILE_LIST})
+else()
+  add_library(dobby STATIC ${SOURCE_FILE_LIST})
+endif()
+add_library(dobby::dobby ALIAS dobby)
 
-set_target_properties(dobby PROPERTIES
-  OUTPUT_NAME "dobby"
-  )
+set_target_properties(dobby PROPERTIES OUTPUT_NAME "dobby")
 
-target_include_directories(dobby PUBLIC
-  include
-  )
-
-# ---
-
-add_library(dobby_static STATIC
-  ${SOURCE_FILE_LIST}
-  )
-
-target_include_directories(dobby_static
+target_include_directories(dobby
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
-  )
+)
 
-# ---
-
-set_target_properties(dobby
-  PROPERTIES
-  LINK_FLAGS "${linker_flags}"
-  COMPILE_FLAGS "${compiler_flags}"
-  )
-
-set_target_properties(dobby_static
-  PROPERTIES
-  COMPILE_FLAGS "${compiler_flags}"
-  )
-
-target_compile_definitions(dobby PRIVATE
-  "COMPILE_DEFINITIONS ${compile_definitions}"
-  -DBUILD_WITH_TRAMPOLINE_ASM
-  )
-target_compile_definitions(dobby_static PRIVATE
-  "COMPILE_DEFINITIONS ${compile_definitions}"
-  )
+if(Private.Obfuscation)
+  set(linker_flags "${linker_flags} -Wl,-mllvm -Wl,-obfuscator-conf=all")
+endif()
 
 # ---
 
@@ -379,14 +356,18 @@ endif ()
 
 # ---
 
+set_target_properties(dobby PROPERTIES COMPILE_FLAGS "${compiler_flags}")
+target_link_options(dobby PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:${linker_flags}>)
+
+target_compile_definitions(dobby PRIVATE
+  "COMPILE_DEFINITIONS ${compile_definitions}"
+  $<IF:$<BOOL:${BUILD_SHARED_LIBS}>,-DBUILD_WITH_TRAMPOLINE_ASM,>
+)
+
 if (SYSTEM.Android)
   target_link_libraries(dobby log)
   if (PROCESSOR.ARM)
     set_target_properties(dobby
-      PROPERTIES
-      ANDROID_ARM_MODE arm
-      )
-    set_target_properties(dobby_static
       PROPERTIES
       ANDROID_ARM_MODE arm
       )
