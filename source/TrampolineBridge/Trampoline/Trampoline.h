@@ -15,6 +15,10 @@ enum trampoline_type_t {
 
   TRAMPOLINE_X64_JMP,
   CLOSEURE_TRAMPOLINE_X64,
+
+  TRAMPOLINE_PPC_LIS_ORI_BCTR,
+  TRAMPOLINE_PPC_B_XXX,
+  CLOSURE_TRAMPOLINE_PPC,
 };
 
 struct Trampoline {

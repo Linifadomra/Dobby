@@ -3,6 +3,12 @@ project(Dobby)
 enable_language(ASM)
 set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -x assembler-with-cpp")
 
+# bare-metal / PowerPC options
+option(DOBBY_BAREMETAL "Target bare-metal / console homebrew: static RWX memory pool, no OS services (auto-enabled when CMAKE_SYSTEM_NAME is Generic)" OFF)
+option(DOBBY_TARGET_PPC "Force 32-bit big-endian PowerPC target, for toolchains that do not set CMAKE_SYSTEM_PROCESSOR" OFF)
+option(DOBBY_PPC_NO_FPU "PowerPC: do not save FPRs in the register context (FPU disabled, MSR[FP] = 0)" OFF)
+set(DOBBY_BAREMETAL_POOL_SIZE "65536" CACHE STRING "Bare-metal: size in bytes of the static pool trampolines and relocated code are carved from")
+
 include(cmake/Util.cmake)
 include(cmake/Macros.cmake)
 include(cmake/build_environment_check.cmake)
@@ -64,6 +70,10 @@ endif ()
 
 set(compile_definitions "${compile_definitions} -DBUILD_WITH_TRAMPOLINE_ASM")
 
+if (DOBBY_PPC_NO_FPU)
+  set(compile_definitions "${compile_definitions} -DDOBBY_PPC_NO_FPU")
+endif ()
+
 if (CMAKE_GENERATOR STREQUAL Xcode)
 endif ()
 
@@ -112,6 +122,7 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/core/assembler/assembler-arm.cc
   source/core/assembler/assembler-ia32.cc
   source/core/assembler/assembler-x64.cc
+  source/core/assembler/assembler-ppc.h
 
   # codegen
   source/core/codegen/codegen-arm.cc
@@ -125,6 +136,7 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/InstructionRelocation/x86/InstructionRelocationX86.cc
   source/InstructionRelocation/x86/InstructionRelocationX86Shared.cc
   source/InstructionRelocation/x64/InstructionRelocationX64.cc
+  source/InstructionRelocation/ppc/InstructionRelocationPPC.cc
   source/InstructionRelocation/x86/x86_insn_decode/x86_insn_decode.c
 
   # intercept routing
@@ -140,6 +152,7 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/TrampolineBridge/Trampoline/trampoline_arm64.cc
   source/TrampolineBridge/Trampoline/trampoline_x86.cc
   source/TrampolineBridge/Trampoline/trampoline_x64.cc
+  source/TrampolineBridge/Trampoline/trampoline_ppc.cc
 
   # closure trampoline bridge - arm
   source/TrampolineBridge/ClosureTrampolineBridge/arm/helper_arm.cc
@@ -161,6 +174,10 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   source/TrampolineBridge/ClosureTrampolineBridge/x64/ClosureTrampolineX64.cc
   source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_bridge_x64.S
   source/TrampolineBridge/ClosureTrampolineBridge/x64/closure_trampoline_x64.S
+  # closure trampoline bridge - ppc
+  source/TrampolineBridge/ClosureTrampolineBridge/ppc/closure_bridge_ppc.cc
+  source/TrampolineBridge/ClosureTrampolineBridge/ppc/ClosureTrampolinePPC.cc
+  source/TrampolineBridge/ClosureTrampolineBridge/ppc/closure_bridge_ppc.S
 
   # plugin register
 
@@ -169,7 +186,20 @@ set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
   )
 
 
-if (SYSTEM.Darwin AND NOT DOBBY_BUILD_KERNEL_MODE)
+if (SYSTEM.BareMetal)
+  set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
+    source/Backend/BareMetal/ProcessRuntime-baremetal.cc
+
+    source/Backend/BareMetal/platform-baremetal.cc
+
+    source/Backend/BareMetal/code-patch-tool-baremetal.cc
+    source/Backend/UserMode/ExecMemory/clear-cache-tool-all.c
+    )
+  # no dlopen / /proc / import tables
+  set(Plugin.SymbolResolver OFF)
+  set(Plugin.ImportTableReplace OFF)
+  set(compile_definitions "${compile_definitions} -DDOBBY_BAREMETAL -DDOBBY_BAREMETAL_POOL_SIZE=${DOBBY_BAREMETAL_POOL_SIZE}")
+elseif (SYSTEM.Darwin AND NOT DOBBY_BUILD_KERNEL_MODE)
   set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
     source/Backend/UserMode/PlatformUtil/Darwin/ProcessRuntime.cc
 
@@ -232,6 +262,7 @@ endif ()
 if (NearBranch)
   set(dobby.SOURCE_FILE_LIST ${dobby.SOURCE_FILE_LIST}
     source/InterceptRouting/NearBranchTrampoline/near_trampoline_arm64.cc
+    source/InterceptRouting/NearBranchTrampoline/near_trampoline_ppc.cc
     )
 endif ()
 
@@ -242,7 +273,7 @@ add_subdirectory(external/logging)
 get_target_property(logging.SOURCE_FILE_LIST logging SOURCES)
 
 # add osbase library
-if(NOT WIN32)
+if(NOT WIN32 AND NOT SYSTEM.BareMetal)
   add_subdirectory(external/osbase)
 endif()
 # ---
@@ -318,6 +349,18 @@ target_compile_definitions(dobby PRIVATE
   "COMPILE_DEFINITIONS ${compile_definitions}"
   $<IF:$<BOOL:${BUILD_SHARED_LIBS}>,-DBUILD_WITH_TRAMPOLINE_ASM,>
 )
+
+if (SYSTEM.BareMetal)
+  target_compile_definitions(dobby PRIVATE
+    DOBBY_BAREMETAL
+    DOBBY_BAREMETAL_POOL_SIZE=${DOBBY_BAREMETAL_POOL_SIZE}
+    BUILD_WITH_TRAMPOLINE_ASM
+    $<$<BOOL:${DOBBY_PPC_NO_FPU}>:DOBBY_PPC_NO_FPU>
+    $<$<BOOL:${FullFloatingPointRegisterPack}>:FULL_FLOATING_POINT_REGISTER_PACK>
+    $<$<NOT:$<BOOL:${DOBBY_DEBUG}>>:DOBBY_LOGGING_DISABLE>
+    $<$<BOOL:${DOBBY_DEBUG}>:DOBBY_DEBUG>
+  )
+endif ()
 
 if (SYSTEM.Android)
   target_link_libraries(dobby log)

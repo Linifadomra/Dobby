@@ -10,6 +10,19 @@ endif ()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden -fPIC -fno-stack-check -fno-stack-protector -fno-exceptions -fno-rtti -fno-common -fno-zero-initialized-in-bss")
 
+if (SYSTEM.BareMetal)
+  # static, absolutely addressed image
+  string(REPLACE "-fPIC" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-pic -fno-pie")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-threadsafe-statics")
+  if (PROCESSOR.PPC AND DOBBY_PPC_NO_FPU)
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -DDOBBY_PPC_NO_FPU")
+  endif ()
+  if (PROCESSOR.PPC AND FullFloatingPointRegisterPack)
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -DFULL_FLOATING_POINT_REGISTER_PACK")
+  endif ()
+endif ()
+
 if (SYSTEM.Darwin)
   # set(compiler_flags "${compiler_flags} -nostdinc++")
 elseif (SYSTEM.Android)

@@ -94,7 +94,8 @@ void _clear_cache(void *start, void *end) {
     __asm __volatile("dsb ish");
   }
   __asm __volatile("isb sy");
-#elif defined(__powerpc64__)
+#elif defined(__powerpc__) || defined(__powerpc64__) || defined(__PPC__) || defined(__ppc__)
+  // 32 byte lines on Gekko / Broadway / Espresso, also a safe (smaller) stride for the 64 byte / 128 byte parts
   const size_t line_size = 32;
   const size_t len = (uintptr_t)end - (uintptr_t)start;
 
