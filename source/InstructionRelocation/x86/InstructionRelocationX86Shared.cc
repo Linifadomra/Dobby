@@ -150,8 +150,15 @@ int GenRelocateSingleX86Insn(addr_t curr_orig_ip, addr_t curr_relo_ip, uint8_t *
 #if defined(TARGET_ARCH_IA32)
     x86_insn_encode_begin();
 
-    __ EmitBuffer(buffer_cursor, insn.immediate_offset);
-    emit_rel32_label(code_buffer, x86_insn_encode_start, curr_relo_ip, orig_dst_ip);
+    const uint8_t *callee = (const uint8_t *)orig_dst_ip;
+    if (insn.primary_opcode == 0xE8 && callee[0] == 0x8B && (callee[1] & 0xC7) == 0x04 && callee[2] == 0x24 &&
+        callee[3] == 0xC3) {
+      __ Emit<int8_t>(0xB8 | ((callee[1] >> 3) & 7));
+      __ Emit<int32_t>((int32_t)curr_orig_ip);
+    } else {
+      __ EmitBuffer(buffer_cursor, insn.immediate_offset);
+      emit_rel32_label(code_buffer, x86_insn_encode_start, curr_relo_ip, orig_dst_ip);
+    }
 #else
     __ Emit<int8_t>(0xFF);
     if (insn.primary_opcode == 0xE8) {

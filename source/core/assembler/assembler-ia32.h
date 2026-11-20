@@ -5,6 +5,8 @@
 #include "core/arch/x86/registers-x86.h"
 #include "core/assembler/assembler.h"
 
+#include "MemoryAllocator/CodeMemBuffer.h"
+
 #define IsInt8(imm) (-128 <= imm && imm <= 127)
 
 enum ref_label_type_t { kDisp32_off_7 };
@@ -34,8 +36,6 @@ public:
   explicit Immediate(int32_t imm) : value_(imm), value_size_(32) {
     if ((int32_t)(int8_t)imm == imm) {
       value_size_ = 8;
-    } else if ((int32_t)(int16_t)imm == imm) {
-      value_size_ = 16;
     } else {
       value_size_ = 32;
     }
@@ -180,7 +180,7 @@ public:
   Address(Register base, Register r);
 
   Address(Register index, ScaleFactor scale, int32_t disp) {
-    ASSERT(index.code() != rsp.code()); // Illegal addressing mode.
+    ASSERT(index.code() != esp.code()); // Illegal addressing mode.
     SetModRM(0, esp);
     SetSIB(scale, index, ebp);
     SetDisp32(disp);
@@ -190,7 +190,7 @@ public:
   Address(Register index, ScaleFactor scale, Register r);
 
   Address(Register base, Register index, ScaleFactor scale, int32_t disp) {
-    ASSERT(index.code() != rsp.code()); // Illegal addressing mode.
+    ASSERT(index.code() != esp.code()); // Illegal addressing mode.
     int rbp_ = ebp.code();
     if ((disp == 0) && ((base.code() & 7) != rbp_)) {
       SetModRM(0, esp);
@@ -424,14 +424,16 @@ public:
   ~TurboAssembler() {
   }
 
-  addr32_t CurrentIP();
+  addr32_t CurrentIP() {
+    return pc_offset() + fixed_addr;
+  }
 
   void CallFunction(ExternalReference function) {
     nop();
     MovRipToRegister(VOLATILE_REGISTER);
     call(Address(VOLATILE_REGISTER, INT32_MAX));
     {
-      auto label = createDataLabel((uint64_t)function.address());
+      auto label = createDataLabel((uint64_t)(uintptr_t)function.address);
       label->link_to(kDisp32_off_7, pc_offset());
     }
     nop();
@@ -445,3 +447,14 @@ public:
 
 } // namespace x86
 } // namespace zz
+
+inline void PseudoLabel::link_confused_instructions(CodeMemBuffer *buffer) {
+  for (auto &ref_label_insn : ref_insts) {
+    int64_t new_offset = pos - ref_label_insn.offset();
+
+    if (ref_label_insn.link_type == kDisp32_off_7) {
+      int disp32_fix_pos = ref_label_insn.offset() - sizeof(int32_t);
+      buffer->FixBindLabel(disp32_fix_pos, new_offset + 7);
+    }
+  }
+}
