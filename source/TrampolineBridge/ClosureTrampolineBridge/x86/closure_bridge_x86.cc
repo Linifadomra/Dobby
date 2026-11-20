@@ -10,27 +10,12 @@
 using namespace zz;
 using namespace zz::x86;
 
-static asm_func_t closure_bridge = NULL;
-
-asm_func_t get_closure_bridge_addr() {
-  // if already initialized, just return.
-  if (closure_bridge)
-    return closure_bridge;
-
-// Check if enable the inline-assembly closure_bridge_template
-#if ENABLE_CLOSURE_BRIDGE_TEMPLATE
-
-  extern void closure_bridge_tempate();
-  closure_bridge = closure_bridge_template;
-
-#else
-
-// otherwise, use the Assembler build the closure_bridge
+void closure_bridge_init() {
 #define _ turbo_assembler_.
 #define __ turbo_assembler_.code_buffer()->
 
-  auto pushfd = (uint8_t *)"\x9c";
-  auto popfd = (uint8_t *)"\x9d";
+  const uint8_t pushfd = 0x9c;
+  const uint8_t popfd = 0x9d;
 
   TurboAssembler turbo_assembler_(0);
 
@@ -46,67 +31,53 @@ asm_func_t get_closure_bridge_addr() {
   _ mov(Address(esp, 4 * 7), esi);
 
   // save flags register
-  __ EmitBuffer(pushfd, 1);
+  __ Emit<uint8_t>(pushfd);
   _ pop(eax);
-  { // save to stack
-    _ sub(esp, Immediate(2 * 4, 32));
-    _ mov(Address(esp, 4), eax);
-  }
+  _ sub(esp, Immediate(2 * 4, 32));
+  _ mov(Address(esp, 4), eax);
 
   // save origin sp
   _ mov(eax, esp);
   _ add(eax, Immediate(8 * 4 + 2 * 4 + 4, 32));
-  { // save to stack
-    _ sub(esp, Immediate(2 * 4, 32));
-    _ mov(Address(esp, 4), eax);
-  }
-
-  // ======= Jump to UnifiedInterface Bridge Handle =======
-
-  // prepare args
   _ sub(esp, Immediate(2 * 4, 32));
-  _ mov(eax, Address(esp, 8 * 4 + 2 * 4 + 2 * 4 + 2 * 4));
   _ mov(Address(esp, 4), eax);
-  _ mov(eax, esp);
-  _ add(eax, Immediate(2 * 4, 32));
-  _ mov(Address(esp, 0), eax);
 
-  // LABEL: call_bridge
+  // handler(ctx, tramp), cdecl, 16-byte aligned stack
+  _ mov(eax, esp);
+  _ mov(ecx, Address(esp, 2 * 4 + 2 * 4 + 8 * 4));
+  _ mov(ebp, esp);
+  _ sub(esp, Immediate(16, 32));
+  // and esp, 0xFFFFFFF0
+  __ Emit<uint8_t>(0x83);
+  __ Emit<uint8_t>(0xE4);
+  __ Emit<uint8_t>(0xF0);
+  _ mov(Address(esp, 0), eax);
+  _ mov(Address(esp, 4), ecx);
+
   _ CallFunction(ExternalReference((void *)common_closure_bridge_handler));
 
-  // ======= DobbyRegisterContext Restore =======
+  _ mov(esp, ebp);
 
-  // restore argument reserved stack
-  _ add(esp, Immediate(2 * 4, 32));
+  // skip dummy/sp placeholder, dummy_1
+  _ add(esp, Immediate(2 * 4 + 4, 32));
+  __ Emit<uint8_t>(popfd);
 
-  // restore sp placeholder stack
-  _ add(esp, Immediate(2 * 4, 32));
-
-  _ add(esp, Immediate(4, 32));
-  // restore flags register
-  __ EmitBuffer(popfd, 1);
-
-  // general register
   _ pop(eax);
   _ pop(ebx);
   _ pop(ecx);
   _ pop(edx);
   _ pop(ebp);
-  _ add(esp, Immediate(4, 32)); // => pop rsp
+  _ add(esp, Immediate(4, 32));
   _ pop(edi);
   _ pop(esi);
 
-  // trick: use the 'carry_data' stack(remain at closure trampoline) placeholder, as the return address
+  // the carry_data slot left by the closure trampoline is the return address
   _ ret();
 
   _ relocDataLabels();
 
-  auto code = AssemblyCodeBuilder::FinalizeFromTurboAssembler(&turbo_assembler_);
-  closure_bridge = (asm_func_t)code->addr;
-
-  DEBUG_LOG("[closure bridge]  closure bridge at %p", closure_bridge);
-#endif
-  return closure_bridge;
+  auto closure_bridge = AssemblerCodeBuilder::FinalizeFromTurboAssembler(&turbo_assembler_);
+  closure_bridge_addr = (asm_func_t)closure_bridge.addr();
 }
 
 #endif

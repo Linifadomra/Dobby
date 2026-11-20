@@ -141,7 +141,7 @@ struct CodeMemBuffer : MemBuffer {
   void RewriteInst(uint32_t offset, arm64_inst_t instr) {
     *reinterpret_cast<arm64_inst_t *>(data() + offset) = instr;
   }
-#elif defined(TARGET_ARCH_X86) || defined(TARGET_ARCH_X64)
+#elif defined(TARGET_ARCH_IA32) || defined(TARGET_ARCH_X64)
   void FixBindLabel(int offset, int32_t disp) {
     Store(offset, disp);
   }

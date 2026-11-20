@@ -5,7 +5,7 @@
 #include "core/arch/x86/registers-x86.h"
 #include "core/assembler/assembler.h"
 
-#include "MemoryAllocator/CodeBuffer/code_buffer_x86.h"
+#include "MemoryAllocator/CodeMemBuffer.h"
 
 #define IsInt8(imm) (-128 <= imm && imm <= 127)
 
@@ -36,8 +36,6 @@ public:
   explicit Immediate(int32_t imm) : value_(imm), value_size_(32) {
     if ((int32_t)(int8_t)imm == imm) {
       value_size_ = 8;
-    } else if ((int32_t)(int16_t)imm == imm) {
-      value_size_ = 16;
     } else {
       value_size_ = 32;
     }
@@ -182,7 +180,7 @@ public:
   Address(Register base, Register r);
 
   Address(Register index, ScaleFactor scale, int32_t disp) {
-    ASSERT(index.code() != rsp.code()); // Illegal addressing mode.
+    ASSERT(index.code() != esp.code()); // Illegal addressing mode.
     SetModRM(0, esp);
     SetSIB(scale, index, ebp);
     SetDisp32(disp);
@@ -192,7 +190,7 @@ public:
   Address(Register index, ScaleFactor scale, Register r);
 
   Address(Register base, Register index, ScaleFactor scale, int32_t disp) {
-    ASSERT(index.code() != rsp.code()); // Illegal addressing mode.
+    ASSERT(index.code() != esp.code()); // Illegal addressing mode.
     int rbp_ = ebp.code();
     if ((disp == 0) && ((base.code() & 7) != rbp_)) {
       SetModRM(0, esp);
@@ -227,31 +225,25 @@ private:
 
 class Assembler : public AssemblerBase {
 public:
-  Assembler(void *address) : AssemblerBase(address) {
-    buffer_ = new CodeBuffer();
-  }
-  ~Assembler() {
-    if (buffer_)
-      delete buffer_;
-    buffer_ = NULL;
-  }
+  Assembler(addr_t address) : AssemblerBase(address) {}
+  ~Assembler() = default;
 
 public:
   void Emit1(byte_t val) {
-    buffer_->Emit<int8_t>(val);
+    code_buffer_.Emit<uint8_t>(val);
   }
 
   void Emit(int32_t value) {
-    buffer_->Emit<int32_t>(value);
+    code_buffer_.Emit<int32_t>(value);
   }
 
   // ---
 
   void EmitImmediate(Immediate imm, int imm_size) {
     if (imm_size == 8) {
-      buffer_->Emit<int8_t>((uint8_t)imm.value());
+      code_buffer_.Emit<uint8_t>((uint8_t)imm.value());
     } else if (imm_size == 32) {
-      buffer_->Emit<int32_t>((uint32_t)imm.value());
+      code_buffer_.Emit<int32_t>((uint32_t)imm.value());
     } else {
       UNREACHABLE();
     }
@@ -264,7 +256,7 @@ public:
 
   void Emit_OpEn_Register_MemOperand(Register dst, Address &operand) {
     EmitModRM_Update_Register(operand.modrm(), dst);
-    buffer_->EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
+    code_buffer_.EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
   }
 
   void Emit_OpEn_Register_RegOperand(Register dst, Register src) {
@@ -273,7 +265,7 @@ public:
 
   void Emit_OpEn_MemOperand_Immediate(uint8_t extra_opcode, Address &operand, Immediate imm) {
     EmitModRM_Update_ExtraOpcode(operand.modrm(), extra_opcode);
-    buffer_->EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
+    code_buffer_.EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
     EmitImmediate(imm, imm.size());
   }
 
@@ -284,7 +276,7 @@ public:
 
   void Emit_OpEn_MemOperand(uint8_t extra_opcode, Address &operand) {
     EmitModRM_Update_ExtraOpcode(operand.modrm(), extra_opcode);
-    buffer_->EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
+    code_buffer_.EmitBuffer(&operand.encoding_[1], operand.length_ - 1);
   }
 
   void Emit_OpEn_RegOperand(uint8_t extra_opcode, Register reg) {
@@ -426,22 +418,23 @@ public:
 
 class TurboAssembler : public Assembler {
 public:
-  TurboAssembler(void *address) : Assembler(address) {
+  TurboAssembler(addr_t address) : Assembler(address) {
   }
 
   ~TurboAssembler() {
   }
 
-  addr32_t CurrentIP();
+  addr32_t CurrentIP() {
+    return pc_offset() + fixed_addr;
+  }
 
   void CallFunction(ExternalReference function) {
     nop();
     MovRipToRegister(VOLATILE_REGISTER);
     call(Address(VOLATILE_REGISTER, INT32_MAX));
     {
-      auto label = RelocDataLabel::withData(function.address());
-      label->link_to(kDisp32_off_7, ip_offset());
-      AppendRelocLabel(label);
+      auto label = createDataLabel((uint64_t)(uintptr_t)function.address);
+      label->link_to(kDisp32_off_7, pc_offset());
     }
     nop();
   }
@@ -454,3 +447,14 @@ public:
 
 } // namespace x86
 } // namespace zz
+
+inline void PseudoLabel::link_confused_instructions(CodeMemBuffer *buffer) {
+  for (auto &ref_label_insn : ref_insts) {
+    int64_t new_offset = pos - ref_label_insn.offset();
+
+    if (ref_label_insn.link_type == kDisp32_off_7) {
+      int disp32_fix_pos = ref_label_insn.offset() - sizeof(int32_t);
+      buffer->FixBindLabel(disp32_fix_pos, new_offset + 7);
+    }
+  }
+}

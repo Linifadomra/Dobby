@@ -1,8 +1,6 @@
 #ifndef CORE_ARCH_CPU_X86_H
 #define CORE_ARCH_CPU_X86_H
 
-#include "core/arch/Cpu.h"
-
 class X86CpuInfo {
 
 public:
@@ -103,7 +101,7 @@ private:
   bool is_atom_;
 };
 
-class X86CpuFeatures : public CpuFeatures {
+class X86CpuFeatures {
 public:
   static bool sse2_supported() {
     return X86CpuInfo().has_sse2();
